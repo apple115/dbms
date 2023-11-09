@@ -24,6 +24,7 @@ fn main() {
     );
     INSERT INTO my_table VALUES (1, 'Alice', 30);
     SELECT id, name FROM my_table;
+    SELECT * FROM my_table;
 ";
 
     let dialect = GenericDialect {};
@@ -101,18 +102,28 @@ fn main() {
                                 .projection
                                 .iter()
                                 .map(|p| match p {
+                                    sqlparser::ast::SelectItem::Wildcard(_) => {
+                                        // Handle selecting all columns
+                                        // Here, you might fetch columns' names from the database, if available
+                                        database.tables[&table_name]
+                                            .columns
+                                            .iter()
+                                            .map(|col| col.to_string())
+                                            .collect()
+                                    }
                                     sqlparser::ast::SelectItem::UnnamedExpr(expr) => match expr {
                                         sqlparser::ast::Expr::Identifier(ident) => {
-                                            ident.value.clone()
+                                            vec![ident.value.clone()]
                                         }
                                         _ => panic!("Unsupported selection expression"),
                                     },
                                     _ => panic!("Unsupported selection item"),
                                 })
+                                .flatten() // Flatten the Vec<Option<String>> to Vec<String>
                                 .collect();
-
                             println!("Table name: {}", table_name);
                             println!("Selected columns: {:?}", selected_columns);
+
                             // Output the selected columns' data only
                             let table_data = &database.tables[&table_name].data;
                             let selected_table_data: Vec<Vec<String>> = table_data
