@@ -1,0 +1,5 @@
+Table: my_table
+id,name,age,
+1,Alice,30
+3,Charlie,25
+

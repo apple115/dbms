@@ -365,16 +365,116 @@ pub fn execute_queries(database: &mut Database, ast: Vec<Statement>) {
                             _ => panic!("Unsupported expression structure for selection condition"),
                         }
                     }
-                    apply_updates(&column_updates, update_ids, table)
+                    if update_ids.is_empty() {
+                        update_ids = table.data.iter().map(|row| row[0].clone()).collect();
+                    }
+                    apply_updates(&column_updates, update_ids, table);
                 } else {
                     panic!("Table not found in the database)");
                 }
             }
+            Statement::AlterTable {
+                name,
+                if_exists,
+                only,
+                operations,
+            } => {
+                let table_name = match name {
+                    sqlparser::ast::ObjectName(ident) => ident
+                        .iter()
+                        .map(|ident| ident.value.to_string())
+                        .collect::<String>(),
+                    _ => panic!("Expected a table name"),
+                };
+
+                if let Some(table) = database.tables.get_mut(&table_name) {
+                    for operation in operations {
+                        match operation {
+                            sqlparser::ast::AlterTableOperation::AddColumn {
+                                column_keyword,
+                                if_not_exists,
+                                column_def,
+                            } => {
+                                if column_keyword {
+                                    let column_name = &column_def.name.value;
+                                    if !table.columns.contains(column_name) {
+                                        let data_type = match &column_def.data_type {
+                                            sqlparser::ast::DataType::Varchar(Some(length)) => {
+                                                format!("VARCHAR({})", length.length)
+                                            }
+                                            // Handle other data types if needed
+                                            _ => panic!("Unsupported data type"),
+                                        };
+
+                                        // Add the new column to the table
+                                        table.columns.push(column_name.to_string());
+                                        for row in &mut table.data {
+                                            row.push("".to_string()); // You may initialize with a default value
+                                        }
+
+                                        // Print a message indicating the column addition
+                                        println!(
+                                            "Added column '{}' to table '{}'",
+                                            column_name, table_name
+                                        );
+                                    } else if !if_not_exists {
+                                        // If the column already exists and if_not_exists is not set, panic
+                                        panic!(
+                                            "Column '{}' already exists in table '{}'",
+                                            column_name, table_name
+                                        );
+                                    }
+                                } else {
+                                    // Handle other alter table operations if needed
+                                    panic!("Unsupported ALTER TABLE operation");
+                                }
+                            }
+                            sqlparser::ast::AlterTableOperation::DropColumn {
+                                column_name,
+                                if_exists,
+                                ..
+                            } => {
+                                let column_to_drop = column_name.value.clone();
+
+                                // TODO: Implement the logic to drop the column from the table
+                                if !if_exists || table.columns.contains(&column_to_drop) {
+                                    table.columns.retain(|col| col != &column_to_drop);
+
+                                    // Drop the corresponding data in each row
+                                    for row in &mut table.data {
+                                        let index = table
+                                            .columns
+                                            .iter()
+                                            .position(|col| col == &column_to_drop);
+                                        if let Some(index) = index {
+                                            row.remove(index);
+                                        }
+                                    }
+
+                                    println!(
+                                        "Dropped column '{}' from table: {:?}",
+                                        column_to_drop, &table_name
+                                    );
+                                } else {
+                                    println!(
+                                        "Column '{}' does not exist in table: {:?}",
+                                        column_to_drop, &table_name
+                                    );
+                                }
+                            }
+                            // Handle other alter table operations if needed
+                            _ => panic!("Unsupported ALTER TABLE operation"),
+                        }
+                    }
+                } else {
+                    panic!("Table not found in the database");
+                }
+            }
+
             _ => panic!("Unsupported SQL statement"),
         }
     }
 }
-
 fn apply_updates(
     column_updates: &HashMap<String, String>,
     update_ids: Vec<String>,
