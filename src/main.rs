@@ -29,8 +29,7 @@ fn main() {
     SELECT id, name FROM my_table;
     SELECT * FROM my_table;
     DELETE FROM my_table WHERE id = 1;
-    DELETE FROM my_table WHERE name = 'Bob';
-    DELETE FROM my_table WHERE age = 25;
+    DELETE FROM my_table ;
     SELECT * FROM my_table;
 ";
     //
@@ -178,123 +177,141 @@ fn main() {
                         let table_name = name.to_string();
                         println!("Table name: {}", table_name);
 
-                        if let Some(select_condition) = selection {
-                            if let sqlparser::ast::Expr::BinaryOp { left, op, right } =
-                                select_condition
-                            {
-                                match (*left, op, *right) {
-                                    (
-                                        sqlparser::ast::Expr::Identifier(ident),
-                                        sqlparser::ast::BinaryOperator::Eq,
-                                        sqlparser::ast::Expr::Value(value),
-                                    ) => match ident.value.as_str() {
-                                        "id" => {
-                                            if let sqlparser::ast::Value::Number(id, _) = value {
-                                                if let Some(table) =
-                                                    database.tables.get_mut(&table_name)
+                        match selection {
+                            Some(select_condition) => {
+                                if let sqlparser::ast::Expr::BinaryOp { left, op, right } =
+                                    select_condition
+                                {
+                                    match (*left, op, *right) {
+                                        (
+                                            sqlparser::ast::Expr::Identifier(ident),
+                                            sqlparser::ast::BinaryOperator::Eq,
+                                            sqlparser::ast::Expr::Value(value),
+                                        ) => match ident.value.as_str() {
+                                            "id" => {
+                                                if let sqlparser::ast::Value::Number(id, _) = value
                                                 {
-                                                    let condition_column = "id";
-                                                    if let Some(index) = table
-                                                        .columns
-                                                        .iter()
-                                                        .position(|col| col == condition_column)
+                                                    if let Some(table) =
+                                                        database.tables.get_mut(&table_name)
                                                     {
-                                                        table.data.retain(|row| {
-                                                            if let Some(val) = row.get(index) {
-                                                                *val != id
-                                                            } else {
-                                                                true
-                                                            }
-                                                        });
-                                                        println!(
-                                                            "Deleted data from table: {:?}",
-                                                            &table_name
-                                                        );
+                                                        let condition_column = "id";
+                                                        if let Some(index) = table
+                                                            .columns
+                                                            .iter()
+                                                            .position(|col| col == condition_column)
+                                                        {
+                                                            table.data.retain(|row| {
+                                                                if let Some(val) = row.get(index) {
+                                                                    *val != id
+                                                                } else {
+                                                                    true
+                                                                }
+                                                            });
+                                                            println!(
+                                                                "Deleted data from table: {:?}",
+                                                                &table_name
+                                                            );
+                                                        } else {
+                                                            panic!("Condition column does not exist in the table");
+                                                        }
                                                     } else {
-                                                        panic!("Condition column does not exist in the table");
+                                                        panic!("Table not found in the database");
                                                     }
                                                 } else {
-                                                    panic!("Table not found in the database");
+                                                    panic!(
+                                                        "Unsupported condition value for deletion"
+                                                    );
                                                 }
-                                            } else {
-                                                panic!("Unsupported condition value for deletion");
                                             }
-                                        }
-                                        "name" => {
-                                            if let sqlparser::ast::Value::SingleQuotedString(name) =
-                                                value
-                                            {
-                                                if let Some(table) =
-                                                    database.tables.get_mut(&table_name)
+                                            "name" => {
+                                                if let sqlparser::ast::Value::SingleQuotedString(
+                                                    name,
+                                                ) = value
                                                 {
-                                                    let condition_column = "name";
-                                                    if let Some(index) = table
-                                                        .columns
-                                                        .iter()
-                                                        .position(|col| col == condition_column)
+                                                    if let Some(table) =
+                                                        database.tables.get_mut(&table_name)
                                                     {
-                                                        table.data.retain(|row| {
-                                                            if let Some(val) = row.get(index) {
-                                                                *val != name
-                                                            } else {
-                                                                true
-                                                            }
-                                                        });
-                                                        println!(
-                                                            "Deleted data from table: {:?}",
-                                                            &table_name
-                                                        );
+                                                        let condition_column = "name";
+                                                        if let Some(index) = table
+                                                            .columns
+                                                            .iter()
+                                                            .position(|col| col == condition_column)
+                                                        {
+                                                            table.data.retain(|row| {
+                                                                if let Some(val) = row.get(index) {
+                                                                    *val != name
+                                                                } else {
+                                                                    true
+                                                                }
+                                                            });
+                                                            println!(
+                                                                "Deleted data from table: {:?}",
+                                                                &table_name
+                                                            );
+                                                        } else {
+                                                            panic!("Condition column does not exist in the table");
+                                                        }
                                                     } else {
-                                                        panic!("Condition column does not exist in the table");
+                                                        panic!("Table not found in the database");
                                                     }
                                                 } else {
-                                                    panic!("Table not found in the database");
+                                                    panic!(
+                                                        "Unsupported condition value for deletion"
+                                                    );
                                                 }
-                                            } else {
-                                                panic!("Unsupported condition value for deletion");
                                             }
-                                        }
-                                        "age" => {
-                                            if let sqlparser::ast::Value::Number(age, _) = value {
-                                                if let Some(table) =
-                                                    database.tables.get_mut(&table_name)
+                                            "age" => {
+                                                if let sqlparser::ast::Value::Number(age, _) = value
                                                 {
-                                                    let condition_column = "age";
-                                                    if let Some(index) = table
-                                                        .columns
-                                                        .iter()
-                                                        .position(|col| col == condition_column)
+                                                    if let Some(table) =
+                                                        database.tables.get_mut(&table_name)
                                                     {
-                                                        table.data.retain(|row| {
-                                                            if let Some(val) = row.get(index) {
-                                                                *val != age
-                                                            } else {
-                                                                true
-                                                            }
-                                                        });
-                                                        println!(
-                                                            "Deleted data from table: {:?}",
-                                                            &table_name
-                                                        );
+                                                        let condition_column = "age";
+                                                        if let Some(index) = table
+                                                            .columns
+                                                            .iter()
+                                                            .position(|col| col == condition_column)
+                                                        {
+                                                            table.data.retain(|row| {
+                                                                if let Some(val) = row.get(index) {
+                                                                    *val != age
+                                                                } else {
+                                                                    true
+                                                                }
+                                                            });
+                                                            println!(
+                                                                "Deleted data from table: {:?}",
+                                                                &table_name
+                                                            );
+                                                        } else {
+                                                            panic!("Condition column does not exist in the table");
+                                                        }
                                                     } else {
-                                                        panic!("Condition column does not exist in the table");
+                                                        panic!("Table not found in the database");
                                                     }
                                                 } else {
-                                                    panic!("Table not found in the database");
+                                                    panic!(
+                                                        "Unsupported condition value for deletion"
+                                                    );
                                                 }
-                                            } else {
-                                                panic!("Unsupported condition value for deletion");
                                             }
-                                        }
-                                        _ => panic!("Unsupported column for deletion"),
-                                    },
-                                    _ => panic!("Unsupported condition structure for deletion"),
+                                            _ => panic!("Unsupported column for deletion"),
+                                        },
+                                        _ => panic!("Unsupported condition structure for deletion"),
+                                    }
+                                } else {
+                                    panic!("Unsupported condition for deletion");
                                 }
-                            } else {
-                                panic!("Unsupported condition for deletion");
                             }
-                        } else {
-                            panic!("No condition provided for deletion");
+                            None => {
+                                if let Some(table) = database.tables.get_mut(&table_name) {
+                                    // Remove all rows
+                                    table.data.clear();
+                                    println!("Deleted all data from table: {:?}", &table_name);
+                                } else {
+                                    panic!("Table not found in the database");
+                                }
+                            }
                         }
                     } else {
                         panic!("No table name provided for deletion");
