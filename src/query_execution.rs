@@ -2,6 +2,7 @@ use super::database::Database;
 use super::Table;
 use sqlparser::ast::Statement;
 use sqlparser::ast::{ColumnDef, DataType};
+use std::collections::HashMap;
 
 pub fn execute_queries(database: &mut Database, ast: Vec<Statement>) {
     // Execute the parsed SQL statements on the database
@@ -274,7 +275,120 @@ pub fn execute_queries(database: &mut Database, ast: Vec<Statement>) {
                 }
             }
 
+            Statement::Update {
+                table,
+                assignments,
+                selection,
+                ..
+            } => {
+                let table_name = match table {
+                    sqlparser::ast::TableWithJoins {
+                        relation:
+                            sqlparser::ast::TableFactor::Table {
+                                name: sqlparser::ast::ObjectName(ident),
+                                ..
+                            },
+                        joins,
+                    } => ident
+                        .iter()
+                        .map(|ident| ident.value.to_string())
+                        .collect::<String>(),
+                    _ => panic!("Expected a table name"),
+                };
+                if let Some(table) = database.tables.get_mut(&table_name) {
+                    let mut column_updates: HashMap<String, String> = HashMap::new();
+                    let mut update_ids: Vec<String> = Vec::new();
+                    for assignment in assignments {
+                        if let sqlparser::ast::Assignment { id, value } = assignment {
+                            if let [sqlparser::ast::Ident { value: column, .. }] = id.as_slice() {
+                                match value {
+                                    sqlparser::ast::Expr::Value(sqlparser::ast::Value::Number(
+                                        val,
+                                        _,
+                                    )) => {
+                                        // Record the assignment: column -> val
+                                        column_updates.insert(column.clone(), val.to_string());
+                                    }
+                                    sqlparser::ast::Expr::Value(
+                                        sqlparser::ast::Value::SingleQuotedString(val),
+                                    ) => {
+                                        // Record the assignment: column -> val
+                                        column_updates.insert(column.clone(), val.clone());
+                                    }
+                                    _ => panic!("Unsupported value type for assignment"),
+                                }
+                            }
+                        }
+                    }
+
+                    if let Some(select_condition) = selection {
+                        match select_condition {
+                            sqlparser::ast::Expr::BinaryOp { left, op, right } => {
+                                match (left.as_ref(), op, right.as_ref()) {
+                                    (
+                                        sqlparser::ast::Expr::Identifier(ident),
+                                        sqlparser::ast::BinaryOperator::Eq,
+                                        sqlparser::ast::Expr::Value(value),
+                                    ) => {
+                                        match ident.value.as_str() {
+                                            "id" => {
+                                                if let sqlparser::ast::Value::Number(id, _) = value
+                                                {
+                                                    for row in &mut table.data {
+                                                        if let Some(row_id) =
+                                                            row.get(0).map(|id| id.clone())
+                                                        {
+                                                            if row_id == *id {
+                                                                update_ids.push(row_id);
+                                                            }
+                                                        }
+                                                    }
+                                                    println!(
+                                                        "Updated data in table: {:?}",
+                                                        &table_name
+                                                    );
+                                                } else {
+                                                    panic!("Unsupported condition value for 'id'");
+                                                }
+                                            }
+                                            // Handle other condition columns if needed
+                                            _ => {
+                                                panic!("Unsupported condition column");
+                                            }
+                                        }
+                                    }
+                                    // Handle other possible condition structures
+                                    _ => panic!("Unsupported condition structure"),
+                                }
+                            }
+                            // Handle other possible expression structures
+                            _ => panic!("Unsupported expression structure for selection condition"),
+                        }
+                    }
+                    apply_updates(&column_updates, update_ids, table)
+                } else {
+                    panic!("Table not found in the database)");
+                }
+            }
             _ => panic!("Unsupported SQL statement"),
+        }
+    }
+}
+
+fn apply_updates(
+    column_updates: &HashMap<String, String>,
+    update_ids: Vec<String>,
+    table: &mut Table,
+) {
+    for row in &mut table.data {
+        if let Some(row_id) = row.get(0).map(|id| id.clone()) {
+            if update_ids.contains(&row_id) {
+                for (col, val) in row.iter_mut().enumerate() {
+                    if let Some(update_val) = column_updates.get(&table.columns[col]) {
+                        *val = update_val.clone();
+                    }
+                }
+            }
         }
     }
 }
