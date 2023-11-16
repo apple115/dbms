@@ -60,7 +60,7 @@ pub fn execute_queries(database: &mut Database, ast: Vec<Statement>) {
                     }
                 }
             }
-
+            //select * from my_table,email_table where my_table.id = email_table.id
             Statement::Query(ref query) => {
                 if let sqlparser::ast::Query { body, .. } = query.as_ref() {
                     if let sqlparser::ast::SetExpr::Select(select) = &**body {
@@ -70,38 +70,21 @@ pub fn execute_queries(database: &mut Database, ast: Vec<Statement>) {
                             if let sqlparser::ast::TableWithJoins { relation, .. } = &select.from[0]
                             {
                                 if let sqlparser::ast::TableFactor::Table { name, .. } = relation {
-                                    let table_name = name.to_string();
+                                    let mut table_name = name.to_string();
+                                    let mut selected_columns: Vec<String> = Vec::new();
 
-                                    let selected_columns: Vec<String> = select
-                                        .projection
-                                        .iter()
-                                        .map(|p| match p {
-                                            sqlparser::ast::SelectItem::Wildcard(_) => {
-                                                // Handle selecting all columns
-                                                // Here, you might fetch columns' names from the database, if available
-                                                database.tables[&table_name]
-                                                    .columns
-                                                    .iter()
-                                                    .map(|col| format!("{}.{}", table_name, col))
-                                                    .collect()
-                                            }
-                                            sqlparser::ast::SelectItem::UnnamedExpr(expr) => {
-                                                match expr {
-                                                    sqlparser::ast::Expr::Identifier(ident) => {
-                                                        vec![format!(
-                                                            "{}.{}",
-                                                            table_name, ident.value
-                                                        )]
-                                                    }
-                                                    _ => panic!("Unsupported selection expression"),
-                                                }
-                                            }
-                                            _ => panic!("Unsupported selection item"),
-                                        })
-                                        .flatten() // Flatten the Vec<Option<String>> to Vec<String>
-                                        .collect();
-                                    println!("Table name: {}", table_name);
-                                    println!("Selected columns: {:?}", selected_columns);
+                                    // Get the columns for the first table
+                                    if let Some(first_table) = database.tables.get(&table_name) {
+                                        // Get all columns as selected_columns for the Cartesian product
+                                        selected_columns.extend(
+                                            first_table
+                                                .columns
+                                                .iter()
+                                                .map(|col| format!("{}.{}", table_name, col)),
+                                        );
+                                    } else {
+                                        panic!("Table not found in the database");
+                                    }
 
                                     // Get the data of the first table
                                     let mut joined_table_data: Vec<Vec<String>> =
@@ -138,6 +121,15 @@ pub fn execute_queries(database: &mut Database, ast: Vec<Statement>) {
                                                         )
                                                     })
                                                     .collect();
+
+                                                // Add the columns from the second table with a prefix
+                                                let second_table_columns: Vec<String> = database
+                                                    .tables[second_table_name.to_string().as_str()]
+                                                .columns
+                                                .iter()
+                                                .map(|col| format!("{}.{}", second_table_name, col))
+                                                .collect();
+                                                selected_columns.extend(second_table_columns);
                                             } else {
                                                 panic!(
                                                     "Table in FROM clause is not a regular table"
@@ -145,9 +137,11 @@ pub fn execute_queries(database: &mut Database, ast: Vec<Statement>) {
                                             }
                                         }
                                     }
-                                    println!("table data: {:#?}", joined_table_data);
 
-                                    //Filter the joined data based on the WHERE clause
+                                    println!("Table name: {}", table_name);
+                                    println!("Selected columns: {:?}", selected_columns);
+                                    println!("table:{:#?}", joined_table_data);
+                                    // Filter the joined data based on the WHERE clause
                                     let filtered_table_data: Vec<Vec<String>> = joined_table_data
                                         .iter()
                                         .filter(|row| {
@@ -155,6 +149,7 @@ pub fn execute_queries(database: &mut Database, ast: Vec<Statement>) {
                                                 match evaluate_condition(
                                                     selection_condition,
                                                     row,
+                                                    &selected_columns,
                                                     database,
                                                 ) {
                                                     Ok(result) => result,
@@ -173,13 +168,49 @@ pub fn execute_queries(database: &mut Database, ast: Vec<Statement>) {
                                         })
                                         .map(|row| {
                                             let mut selected_row_data: Vec<String> = Vec::new();
-                                            for (col, val) in row.iter().enumerate() {
-                                                if selected_columns.contains(&format!(
-                                                    "{}.{}",
-                                                    table_name,
-                                                    &database.tables[&table_name].columns[col]
-                                                )) {
-                                                    selected_row_data.push(val.clone());
+                                            for col_name in selected_columns.iter() {
+                                                // Check if the column name is in the format "table_name.column_name"
+                                                if col_name.contains('.') {
+                                                    // If it is in the format "table_name.column_name", split it
+                                                    if let Some((table, column)) =
+                                                        split_table_column(col_name)
+                                                    {
+                                                        table_name = table.to_string();
+                                                        // Find the index of the column in the row
+                                                        if let Some(col_index) = database.tables
+                                                            [&table_name]
+                                                            .columns
+                                                            .iter()
+                                                            .position(|col| col == column)
+                                                        {
+                                                            // Add the value to the selected row data
+                                                            selected_row_data
+                                                                .push(row[col_index].clone());
+                                                        } else {
+                                                            eprintln!(
+                                                                "Column not found in the row"
+                                                            );
+                                                        }
+                                                    } else {
+                                                        eprintln!(
+                                                            "Invalid column name format: {}",
+                                                            col_name
+                                                        );
+                                                    }
+                                                } else {
+                                                    // If it is not in the format "table_name.column_name", assume it's a column name without a table prefix
+                                                    if let Some(col_index) = database.tables
+                                                        [&table_name]
+                                                        .columns
+                                                        .iter()
+                                                        .position(|col| col == col_name)
+                                                    {
+                                                        // Add the value to the selected row data
+                                                        selected_row_data
+                                                            .push(row[col_index].clone());
+                                                    } else {
+                                                        eprintln!("Column not found in the row");
+                                                    }
                                                 }
                                             }
                                             selected_row_data
@@ -200,7 +231,6 @@ pub fn execute_queries(database: &mut Database, ast: Vec<Statement>) {
                     }
                 }
             }
-
             Statement::Delete {
                 from, selection, ..
             } => {
@@ -607,6 +637,7 @@ fn apply_updates(
 fn evaluate_condition(
     condition: &sqlparser::ast::Expr,
     row: &[String],
+    selected_columns: &[String],
     database: &Database,
 ) -> Result<bool, &'static str> {
     match condition {
@@ -618,17 +649,21 @@ fn evaluate_condition(
                     sqlparser::ast::Expr::CompoundIdentifier(right_cols),
                 ) => {
                     // Assuming both sides are of the form "table_name.column_name"
-                    let (left_table, left_col) = (&left_cols[0].value, &left_cols[1].value);
-                    let (right_table, right_col) = (&right_cols[0].value, &right_cols[1].value);
+                    let (left_table, left_col) = (
+                        &left_cols[0].value.to_string(),
+                        &left_cols[1].value.to_string(),
+                    );
+                    let (right_table, right_col) = (
+                        &right_cols[0].value.to_string(),
+                        &right_cols[1].value.to_string(),
+                    );
 
-                    let left_col_index = database.tables[left_table]
-                        .columns
+                    let left_col_index = selected_columns
                         .iter()
-                        .position(|col| col == left_col);
-                    let right_col_index = database.tables[right_table]
-                        .columns
+                        .position(|col| col == &format!("{}.{}", left_table, left_col));
+                    let right_col_index = selected_columns
                         .iter()
-                        .position(|col| col == right_col);
+                        .position(|col| col == &format!("{}.{}", right_table, right_col));
 
                     if let (Some(left_index), Some(right_index)) = (left_col_index, right_col_index)
                     {
@@ -637,12 +672,20 @@ fn evaluate_condition(
 
                         Ok(left_row_val == right_row_val)
                     } else {
-                        Err("Column not found in the table")
+                        Err("Column not found in the selected columns")
                     }
                 }
                 _ => Err("Unsupported condition structure in WHERE clause"),
             }
         }
         _ => Err("Unsupported expression structure in WHERE clause"),
+    }
+}
+fn split_table_column(col_name: &str) -> Option<(&str, &str)> {
+    let parts: Vec<&str> = col_name.split('.').collect();
+    if parts.len() == 2 {
+        Some((parts[0], parts[1]))
+    } else {
+        None
     }
 }

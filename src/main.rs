@@ -10,7 +10,8 @@ use std::io::Write;
 
 fn main() {
     let sql_query = "CREATE TABLE my_table (id INT,name VARCHAR(255),age INT);
-    SELECT * FROM my_table,email_table where my_table.id = email_table.id ;
+    SELECT * FROM my_table,email_table where my_table.id = email_table.id and my_table.id = 1;
+    SELECT id FROM my_table;
     
     DROP TABLE table_name
 ";
