@@ -1,5 +1,12 @@
 Table: my_table
-id,name,age,
+Columns id,name,age
 1,Alice,30
-3,Charlie,25
+2,Bob,20
+3,Carl,40
+
+Table: email_table
+Columns id,email
+1,23333
+2,24444
+3,25555
 

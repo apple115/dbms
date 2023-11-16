@@ -28,10 +28,9 @@ impl Database {
         let mut file = File::create(&self.file_path)?;
         for (_, table) in &self.tables {
             file.write_all(format!("Table: {}\n", table.name).as_bytes())?;
-            for column in &table.columns {
-                file.write_all(column.as_bytes())?;
-                file.write_all(b",")?;
-            }
+            file.write_all(b"Columns ")?;
+            let columns_str = table.columns.join(",");
+            file.write_all(columns_str.as_bytes())?;
             file.write_all(b"\n")?;
             for row in &table.data {
                 let row_str = row.join(",");
@@ -53,44 +52,47 @@ impl Database {
 
         for line in reader.lines() {
             let line = line?;
-
-            if line.starts_with("Table: ") {
+            if line.starts_with("Table:") {
                 // Save the previous table data
                 if !current_table_name.is_empty() {
-                    let table = Table {
-                        name: current_table_name.clone(),
-                        columns: current_columns.clone(),
-                        data: current_data.clone(),
-                    };
-                    self.tables.insert(current_table_name.clone(), table);
-
-                    // Reset for the next table
-                    current_columns.clear();
-                    current_data.clear();
+                    self.tables.insert(
+                        current_table_name.clone(),
+                        Table {
+                            name: current_table_name.clone(),
+                            columns: current_columns.clone(),
+                            data: current_data.clone(),
+                        },
+                    );
                 }
 
-                // Extract the table name from the line
-                current_table_name = line.trim_start_matches("Table: ").to_string();
-            } else if !line.is_empty() {
-                // Split the line into columns and add to current_data
-                let row: Vec<String> = line.split(',').map(|s| s.trim().to_string()).collect();
-                current_data.push(row.clone());
-
-                // If columns are not set, set them based on the first row
-                if current_columns.is_empty() {
-                    current_columns = row;
-                }
+                // Start parsing a new table
+                current_table_name = line.trim_start_matches("Table:").trim().to_string();
+                current_columns.clear();
+                current_data.clear();
+            } else if line.starts_with("Columns") {
+                // Parse column names
+                current_columns = line
+                    .trim_start_matches("Columns")
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .collect();
+            } else if !line.trim().is_empty() {
+                // Parse data rows
+                let row_data: Vec<String> = line.split(',').map(|s| s.trim().to_string()).collect();
+                current_data.push(row_data);
             }
         }
 
         // Save the last table data
         if !current_table_name.is_empty() {
-            let table = Table {
-                name: current_table_name.clone(),
-                columns: current_columns,
-                data: current_data,
-            };
-            self.tables.insert(current_table_name, table);
+            self.tables.insert(
+                current_table_name.clone(),
+                Table {
+                    name: current_table_name.clone(),
+                    columns: current_columns.clone(),
+                    data: current_data.clone(),
+                },
+            );
         }
 
         Ok(())
